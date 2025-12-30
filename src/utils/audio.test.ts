@@ -42,7 +42,7 @@ describe('audio utils', () => {
 
   describe('uploadAudioChunk', () => {
     beforeEach(() => {
-        global.fetch = vi.fn();
+        vi.stubGlobal('fetch', vi.fn());
 
         class MockFileReader {
             result = 'data:audio/webm;base64,dGVzdCBhdWRpbw==';
@@ -59,7 +59,7 @@ describe('audio utils', () => {
     });
 
     it('successfully uploads audio', async () => {
-      (global.fetch as any).mockResolvedValue({
+      (fetch as any).mockResolvedValue({
         ok: true,
         json: async () => ({ status: 'success' }),
       });
@@ -68,7 +68,7 @@ describe('audio utils', () => {
 
       const result = await uploadAudioChunk('session-123', blob, 'http://api.test');
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(fetch).toHaveBeenCalledWith(
         'http://api.test/api/transcribe?sessionId=session-123',
         expect.objectContaining({
           method: 'POST',
@@ -79,7 +79,7 @@ describe('audio utils', () => {
     });
 
     it('handles API errors', async () => {
-      (global.fetch as any).mockResolvedValue({
+      (fetch as any).mockResolvedValue({
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',

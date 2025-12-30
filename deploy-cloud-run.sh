@@ -55,6 +55,7 @@ gcloud config set project $PROJECT_ID
 echo "🏗️  Building Docker image..."
 IMAGE_NAME="gcr.io/$PROJECT_ID/$SERVICE_NAME"
 docker build \
+  --platform linux/amd64 \
   --build-arg VITE_FIREBASE_API_KEY="$VITE_FIREBASE_API_KEY" \
   --build-arg VITE_FIREBASE_AUTH_DOMAIN="$VITE_FIREBASE_AUTH_DOMAIN" \
   --build-arg VITE_FIREBASE_DATABASE_URL="$VITE_FIREBASE_DATABASE_URL" \

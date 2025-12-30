@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment variables
+.env
+.env.production
+.env.gcloud
+
+# GCP Service Account Key
+sauti-darasa-key.json

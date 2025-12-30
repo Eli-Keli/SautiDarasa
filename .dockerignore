@@ -51,5 +51,4 @@ logs/
 # Misc
 .prettierrc
 .eslintrc*
-tsconfig.json
 vite.config.ts.timestamp-*

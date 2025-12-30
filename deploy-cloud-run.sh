@@ -23,7 +23,7 @@ fi
 
 # Load environment variables
 echo "📋 Loading environment variables..."
-export $(cat .env.gcloud | xargs)
+export $(cat .env.gcloud | grep -v '^#' | grep -v '^$' | xargs)
 
 # Get project configuration
 read -p "Enter your GCP Project ID: " PROJECT_ID

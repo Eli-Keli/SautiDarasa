@@ -17,7 +17,7 @@ export default function StudentView() {
   const { isConnected, isReconnecting } = useFirebaseConnection();
 
   // Keep screen awake while viewing captions
-  const { isActive: wakeLockActive } = useWakeLock(isSubscriptionReady && !!caption);
+  useWakeLock(isSubscriptionReady && !!caption);
 
   // Get session ID from URL
   useEffect(() => {

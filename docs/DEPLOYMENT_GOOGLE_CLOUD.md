@@ -1,5 +1,18 @@
 # Google Cloud Deployment Guide - Sauti Darasa Frontend
 
+## 🎉 Deployment Status
+
+**✅ SUCCESSFULLY DEPLOYED**
+
+- **Project ID**: `sauti-darasa` (Project #512236104756)
+- **Service Name**: `sauti-darasa-pwa`
+- **Region**: `africa-south1`
+- **Live URL**: https://sauti-darasa-pwa-512236104756.africa-south1.run.app
+- **Deployed**: January 1, 2026
+- **Firebase Project**: `sautidarasa` (BLAZE plan)
+
+---
+
 ## Overview
 
 This guide provides complete instructions for deploying the Sauti Darasa PWA to **Google Cloud Platform** using either **Cloud Run** (recommended) or **App Engine**. This documentation is designed for developers with no prior GCP deployment experience.

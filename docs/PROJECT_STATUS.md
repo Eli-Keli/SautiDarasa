@@ -1,10 +1,11 @@
 # Sauti Darasa - Project Status & Onboarding Guide
 
-**Last Updated**: December 5, 2025 (End of Hackathon)  
-**Repository**: https://github.com/ViggenKorir/SautiDarasa  
+**Last Updated**: January 1, 2026  
+**Repository**: https://github.com/Eli-Keli/SautiDarasa (forked from ViggenKorir/SautiDarasa)  
 **Current Version**: v1.0.0-alpha  
-**Project Phase**: Post-Hackathon MVP  
+**Project Phase**: Post-Hackathon MVP - Production Deployed  
 **Status**: Active Development  
+**Live Demo**: https://sauti-darasa-pwa-512236104756.africa-south1.run.app  
 
 ---
 
@@ -12,8 +13,9 @@
 
 **Sauti Darasa** is a Progressive Web App (PWA) that provides **real-time speech-to-text captioning for Kenyan classrooms**, specifically designed to support deaf and hard-of-hearing students. The project was developed during a hackathon that concluded on December 5, 2025, and represents a functional MVP with both working features and areas requiring further development.
 
-**Repository**: https://github.com/ViggenKorir/SautiDarasa  
-**Live Demo**: Not yet deployed (see deployment guide)  
+**Repository**: https://github.com/Eli-Keli/SautiDarasa  
+**Live Demo**: https://sauti-darasa-pwa-512236104756.africa-south1.run.app  
+**Deployment**: Google Cloud Run (africa-south1)  
 **Team**: Hackathon collaborative project
 
 ### What We Built (December 2025)
@@ -24,19 +26,21 @@
 ✅ **PWA capabilities** (installable, offline support, service worker)  
 ✅ **Demo mode** for testing without backend infrastructure  
 ✅ **Google Cloud deployment configuration** (Docker, Cloud Run, App Engine)  
+✅ **Production deployment to Google Cloud Run** (africa-south1 region)  
+✅ **Firebase project configured** (sautidarasa - BLAZE plan)  
 ✅ **Comprehensive documentation** (6 markdown files totaling ~15,000 lines)  
 ✅ **Mobile-responsive design** with accessibility considerations  
 
 ### What Needs Implementation (2026 Roadmap)
 
-❌ **Backend transcription service** (audio-to-text conversion)  
-❌ **Production Firebase configuration** with authentication  
+❌ **Backend transcription service** (Google Cloud Speech-to-Text integration)  
+❌ **Production Firebase authentication** and security rules  
 ❌ **CI/CD pipeline** with automated testing  
 ❌ **Comprehensive test suite** (unit, integration, e2e tests)  
 ❌ **Advanced accessibility features** (keyboard shortcuts, screen reader optimization)  
 ❌ **Performance optimizations** (code splitting, lazy loading)  
-❌ **Production deployment** to Google Cloud  
-❌ **User analytics** and error monitoring  
+❌ **Custom domain setup** and SSL configuration  
+❌ **User analytics** and error monitoring (Cloud Logging, Cloud Monitoring)  
 
 ---
 

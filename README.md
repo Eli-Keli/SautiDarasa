@@ -4,11 +4,13 @@
 
 A Progressive Web App (PWA) that enables teachers to provide live captions for deaf and hard-of-hearing students in real-time.
 
+**🌐 Live Demo**: https://sauti-darasa-pwa-512236104756.africa-south1.run.app
+
 ## 🚀 Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/ViggenKorir/SautiDarasa.git
+git clone https://github.com/Eli-Keli/SautiDarasa.git
 cd SautiDarasa
 
 # Install dependencies

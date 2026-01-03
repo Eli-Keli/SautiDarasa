@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "sessions": {
+      "$sessionId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "captions": {
+      "$sessionId": {
+        ".read": true,
+        ".write": true
+      }
+    }
+  }
+}

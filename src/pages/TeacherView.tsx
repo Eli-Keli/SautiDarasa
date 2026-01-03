@@ -53,7 +53,7 @@ export default function TeacherView() {
     stopRecording,
   } = useAudioRecorder({
     onDataAvailable: handleAudioChunk,
-    chunkDuration: 1500, // 1.5 seconds
+    chunkDuration: 5000, // 5 seconds - ensures complete WebM chunks
   });
 
   // Keep screen awake while recording

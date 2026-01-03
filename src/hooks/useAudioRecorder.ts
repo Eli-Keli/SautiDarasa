@@ -27,7 +27,6 @@ export const useAudioRecorder = ({
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksTimerRef = useRef<number | null>(null);
 
   // Request microphone permission
   const requestPermission = useCallback(async () => {
@@ -65,12 +64,22 @@ export const useAudioRecorder = ({
         throw new Error('MediaRecorder not supported in this browser');
       }
 
-      // Determine best mime type
-      const supportedMimeType = MediaRecorder.isTypeSupported('audio/webm') 
-        ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : mimeType;
+      // Try to use Opus codec explicitly for better compatibility
+      const mimeTypesToTry = [
+        'audio/webm;codecs=opus',  // Preferred: WebM with Opus codec
+        'audio/ogg;codecs=opus',   // Fallback: OGG with Opus codec
+        'audio/webm',              // Generic WebM
+        'audio/ogg',               // Generic OGG
+      ];
+
+      let supportedMimeType = mimeType;
+      for (const mime of mimeTypesToTry) {
+        if (MediaRecorder.isTypeSupported(mime)) {
+          supportedMimeType = mime;
+          console.log(`[MediaRecorder] Using MIME type: ${mime}`);
+          break;
+        }
+      }
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: supportedMimeType,
@@ -96,21 +105,12 @@ export const useAudioRecorder = ({
 
       mediaRecorder.onstop = () => {
         setState(prev => ({ ...prev, isRecording: false }));
-        if (chunksTimerRef.current) {
-          clearInterval(chunksTimerRef.current);
-          chunksTimerRef.current = null;
-        }
+        stream.getTracks().forEach(track => track.stop());
       };
 
-      // Start recording
-      mediaRecorder.start();
-
-      // Request data in chunks
-      chunksTimerRef.current = setInterval(() => {
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.requestData();
-        }
-      }, chunkDuration);
+      // Start recording with timeslice to get proper chunks
+      // timeslice parameter ensures each chunk is a valid, complete media segment
+      mediaRecorder.start(chunkDuration);
 
       setState(prev => ({ 
         ...prev, 
@@ -130,11 +130,6 @@ export const useAudioRecorder = ({
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
-      
-      if (chunksTimerRef.current) {
-        clearInterval(chunksTimerRef.current);
-        chunksTimerRef.current = null;
-      }
     }
   }, []);
 
@@ -162,9 +157,6 @@ export const useAudioRecorder = ({
       }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
-      }
-      if (chunksTimerRef.current) {
-        clearInterval(chunksTimerRef.current);
       }
     };
   }, []);

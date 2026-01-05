@@ -31,16 +31,23 @@ export const useAudioRecorder = ({
   // Request microphone permission
   const requestPermission = useCallback(async () => {
     try {
+      // Remove sampleRate constraint - let browser choose optimal settings
+      // Browser will typically use 48kHz which is supported by Speech API
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           channelCount: 1,
-          sampleRate: 16000, // 16kHz for backend
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
         } 
       });
       streamRef.current = stream;
+      
+      // Log audio track settings
+      const audioTrack = stream.getAudioTracks()[0];
+      const settings = audioTrack.getSettings();
+      console.log('[AudioRecorder] Audio track settings:', settings);
+      
       setState(prev => ({ ...prev, permissionGranted: true, error: null }));
       return stream;
     } catch (err) {
@@ -90,6 +97,19 @@ export const useAudioRecorder = ({
       // Handle data available event
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
+          console.log(`[MediaRecorder] Chunk received: ${event.data.size} bytes, type: ${event.data.type}`);
+          
+          // Debug: Check first few bytes of the blob
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (reader.result instanceof ArrayBuffer) {
+              const bytes = new Uint8Array(reader.result).slice(0, 8);
+              const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+              console.log(`[MediaRecorder] First 8 bytes (hex): ${hex}`);
+            }
+          };
+          reader.readAsArrayBuffer(event.data);
+          
           onDataAvailable(event.data);
         }
       };

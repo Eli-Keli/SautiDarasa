@@ -30,6 +30,8 @@ export const useAudioRecorder = ({
   const streamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Float32Array[]>([]);
   const chunkIntervalRef = useRef<number | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
+  const isPausedRef = useRef<boolean>(false);
 
   // Request microphone permission
   const requestPermission = useCallback(async () => {
@@ -121,12 +123,14 @@ export const useAudioRecorder = ({
 
       // Process audio data
       processor.onaudioprocess = (e) => {
-        if (!state.isRecording || state.isPaused) return;
+        if (!isRecordingRef.current || isPausedRef.current) return;
 
         const inputData = e.inputBuffer.getChannelData(0);
         // Clone the data since it will be reused
         const chunk = new Float32Array(inputData);
         audioChunksRef.current.push(chunk);
+        
+        console.log(`[AudioRecorder] Audio chunk captured: ${chunk.length} samples`);
       };
 
       // Connect nodes
@@ -139,6 +143,9 @@ export const useAudioRecorder = ({
 
       console.log(`[AudioRecorder] Started recording with PCM LINEAR16, sample rate: ${sampleRate}Hz, chunk interval: ${chunkDuration}ms`);
 
+      isRecordingRef.current = true;
+      isPausedRef.current = false;
+
       setState(prev => ({ 
         ...prev, 
         isRecording: true, 
@@ -149,9 +156,11 @@ export const useAudioRecorder = ({
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Failed to start recording';
       setState(prev => ({ ...prev, error, isRecording: false }));
+      isRecordingRef.current = false;
+      isPausedRef.current = false;
       console.error('Start recording error:', err);
     }
-  }, [requestPermission, sampleRate, chunkDuration, processAndSendChunks, state.isRecording, state.isPaused]);
+  }, [requestPermission, sampleRate, chunkDuration, processAndSendChunks]);
 
   // Stop recording
   const stopRecording = useCallback(() => {
@@ -184,6 +193,9 @@ export const useAudioRecorder = ({
       streamRef.current = null;
     }
 
+    isRecordingRef.current = false;
+    isPausedRef.current = false;
+
     setState(prev => ({ ...prev, isRecording: false, isPaused: false }));
     console.log('[AudioRecorder] Recording stopped');
   }, [processAndSendChunks]);
@@ -192,6 +204,7 @@ export const useAudioRecorder = ({
   const pauseRecording = useCallback(() => {
     if (audioContextRef.current && audioContextRef.current.state === 'running') {
       audioContextRef.current.suspend();
+      isPausedRef.current = true;
       setState(prev => ({ ...prev, isPaused: true }));
       console.log('[AudioRecorder] Recording paused');
     }
@@ -201,6 +214,7 @@ export const useAudioRecorder = ({
   const resumeRecording = useCallback(() => {
     if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
       audioContextRef.current.resume();
+      isPausedRef.current = false;
       setState(prev => ({ ...prev, isPaused: false }));
       console.log('[AudioRecorder] Recording resumed');
     }

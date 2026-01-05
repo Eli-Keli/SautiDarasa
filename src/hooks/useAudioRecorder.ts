@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 interface UseAudioRecorderOptions {
   onDataAvailable: (audioBlob: Blob) => void;
   chunkDuration?: number; // in milliseconds
-  mimeType?: string;
+  sampleRate?: number; // Sample rate for PCM audio
 }
 
 interface AudioRecorderState {
@@ -16,7 +16,7 @@ interface AudioRecorderState {
 export const useAudioRecorder = ({
   onDataAvailable,
   chunkDuration = 1500, // 1.5 seconds default
-  mimeType = 'audio/webm',
+  sampleRate = 48000, // Default to 48kHz for optimal quality
 }: UseAudioRecorderOptions) => {
   const [state, setState] = useState<AudioRecorderState>({
     isRecording: false,
@@ -25,14 +25,15 @@ export const useAudioRecorder = ({
     permissionGranted: null,
   });
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Float32Array[]>([]);
+  const chunkIntervalRef = useRef<number | null>(null);
 
   // Request microphone permission
   const requestPermission = useCallback(async () => {
     try {
-      // Remove sampleRate constraint - let browser choose optimal settings
-      // Browser will typically use 48kHz which is supported by Speech API
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           channelCount: 1,
@@ -57,6 +58,44 @@ export const useAudioRecorder = ({
     }
   }, []);
 
+  // Convert Float32Array PCM data to Int16Array (LINEAR16 format)
+  const floatTo16BitPCM = (float32Array: Float32Array): Int16Array => {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16Array;
+  };
+
+  // Process accumulated audio chunks and send as blob
+  const processAndSendChunks = useCallback(() => {
+    if (audioChunksRef.current.length === 0) return;
+
+    // Concatenate all Float32Array chunks
+    const totalLength = audioChunksRef.current.reduce((sum, chunk) => sum + chunk.length, 0);
+    const combinedFloat32 = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of audioChunksRef.current) {
+      combinedFloat32.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    // Convert to 16-bit PCM
+    const pcm16 = floatTo16BitPCM(combinedFloat32);
+    
+    // Create blob from raw PCM data (no WAV header - backend expects raw LINEAR16)
+    const blob = new Blob([pcm16.buffer], { type: 'audio/l16' });
+    
+    console.log(`[AudioRecorder] Sending PCM chunk: ${blob.size} bytes, ${combinedFloat32.length} samples, ${(combinedFloat32.length / sampleRate).toFixed(2)}s duration`);
+    
+    // Clear chunks
+    audioChunksRef.current = [];
+    
+    // Send to callback
+    onDataAvailable(blob);
+  }, [onDataAvailable, sampleRate]);
+
   // Start recording
   const startRecording = useCallback(async () => {
     try {
@@ -66,71 +105,39 @@ export const useAudioRecorder = ({
         stream = await requestPermission();
       }
 
-      // Check if MediaRecorder is supported
-      if (!window.MediaRecorder) {
-        throw new Error('MediaRecorder not supported in this browser');
-      }
-
-      // Try to use Opus codec explicitly for better compatibility
-      const mimeTypesToTry = [
-        'audio/webm;codecs=opus',  // Preferred: WebM with Opus codec
-        'audio/ogg;codecs=opus',   // Fallback: OGG with Opus codec
-        'audio/webm',              // Generic WebM
-        'audio/ogg',               // Generic OGG
-      ];
-
-      let supportedMimeType = mimeType;
-      for (const mime of mimeTypesToTry) {
-        if (MediaRecorder.isTypeSupported(mime)) {
-          supportedMimeType = mime;
-          console.log(`[MediaRecorder] Using MIME type: ${mime}`);
-          break;
-        }
-      }
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: supportedMimeType,
+      // Create AudioContext
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+        sampleRate,
       });
+      audioContextRef.current = audioContext;
 
-      mediaRecorderRef.current = mediaRecorder;
+      // Create source from microphone stream
+      const source = audioContext.createMediaStreamSource(stream);
 
-      // Handle data available event
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          console.log(`[MediaRecorder] Chunk received: ${event.data.size} bytes, type: ${event.data.type}`);
-          
-          // Debug: Check first few bytes of the blob
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (reader.result instanceof ArrayBuffer) {
-              const bytes = new Uint8Array(reader.result).slice(0, 8);
-              const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-              console.log(`[MediaRecorder] First 8 bytes (hex): ${hex}`);
-            }
-          };
-          reader.readAsArrayBuffer(event.data);
-          
-          onDataAvailable(event.data);
-        }
+      // Create ScriptProcessorNode for audio processing
+      // Buffer size: 4096 samples (~85ms at 48kHz)
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      // Process audio data
+      processor.onaudioprocess = (e) => {
+        if (!state.isRecording || state.isPaused) return;
+
+        const inputData = e.inputBuffer.getChannelData(0);
+        // Clone the data since it will be reused
+        const chunk = new Float32Array(inputData);
+        audioChunksRef.current.push(chunk);
       };
 
-      mediaRecorder.onerror = (event) => {
-        console.error('MediaRecorder error:', event);
-        setState(prev => ({ 
-          ...prev, 
-          error: 'Recording error occurred',
-          isRecording: false 
-        }));
-      };
+      // Connect nodes
+      source.connect(processor);
+      processor.connect(audioContext.destination);
 
-      mediaRecorder.onstop = () => {
-        setState(prev => ({ ...prev, isRecording: false }));
-        stream.getTracks().forEach(track => track.stop());
-      };
+      // Set up interval to send chunks periodically
+      const intervalId = window.setInterval(processAndSendChunks, chunkDuration);
+      chunkIntervalRef.current = intervalId;
 
-      // Start recording with timeslice to get proper chunks
-      // timeslice parameter ensures each chunk is a valid, complete media segment
-      mediaRecorder.start(chunkDuration);
+      console.log(`[AudioRecorder] Started recording with PCM LINEAR16, sample rate: ${sampleRate}Hz, chunk interval: ${chunkDuration}ms`);
 
       setState(prev => ({ 
         ...prev, 
@@ -144,36 +151,72 @@ export const useAudioRecorder = ({
       setState(prev => ({ ...prev, error, isRecording: false }));
       console.error('Start recording error:', err);
     }
-  }, [onDataAvailable, chunkDuration, mimeType, requestPermission]);
+  }, [requestPermission, sampleRate, chunkDuration, processAndSendChunks, state.isRecording, state.isPaused]);
 
   // Stop recording
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+    // Clear interval
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current);
+      chunkIntervalRef.current = null;
     }
-  }, []);
+
+    // Send any remaining chunks
+    if (audioChunksRef.current.length > 0) {
+      processAndSendChunks();
+    }
+
+    // Disconnect audio nodes
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+
+    // Close AudioContext
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+
+    // Stop media stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    setState(prev => ({ ...prev, isRecording: false, isPaused: false }));
+    console.log('[AudioRecorder] Recording stopped');
+  }, [processAndSendChunks]);
 
   // Pause recording
   const pauseRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.pause();
+    if (audioContextRef.current && audioContextRef.current.state === 'running') {
+      audioContextRef.current.suspend();
       setState(prev => ({ ...prev, isPaused: true }));
+      console.log('[AudioRecorder] Recording paused');
     }
   }, []);
 
   // Resume recording
   const resumeRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
-      mediaRecorderRef.current.resume();
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
       setState(prev => ({ ...prev, isPaused: false }));
+      console.log('[AudioRecorder] Recording resumed');
     }
   }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current) {
-        mediaRecorderRef.current.stop();
+      if (chunkIntervalRef.current) {
+        clearInterval(chunkIntervalRef.current);
+      }
+      if (processorRef.current) {
+        processorRef.current.disconnect();
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
       }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());

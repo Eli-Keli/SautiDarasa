@@ -59,13 +59,13 @@ export const useAudioRecorder = ({
   }, []);
 
   // Convert Float32Array PCM data to Int16Array (LINEAR16 format)
-  const floatTo16BitPCM = (float32Array: Float32Array): Int16Array => {
+  const floatTo16BitPCM = (float32Array: Float32Array): ArrayBuffer => {
     const int16Array = new Int16Array(float32Array.length);
     for (let i = 0; i < float32Array.length; i++) {
       const s = Math.max(-1, Math.min(1, float32Array[i]));
       int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
-    return int16Array;
+    return int16Array.buffer;
   };
 
   // Process accumulated audio chunks and send as blob
@@ -82,10 +82,10 @@ export const useAudioRecorder = ({
     }
 
     // Convert to 16-bit PCM
-    const pcm16 = floatTo16BitPCM(combinedFloat32);
+    const pcm16Buffer = floatTo16BitPCM(combinedFloat32);
     
     // Create blob from raw PCM data (no WAV header - backend expects raw LINEAR16)
-    const blob = new Blob([pcm16.buffer], { type: 'audio/l16' });
+    const blob = new Blob([pcm16Buffer], { type: 'audio/l16' });
     
     console.log(`[AudioRecorder] Sending PCM chunk: ${blob.size} bytes, ${combinedFloat32.length} samples, ${(combinedFloat32.length / sampleRate).toFixed(2)}s duration`);
     

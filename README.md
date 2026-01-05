@@ -37,6 +37,7 @@ Complete documentation is available in the `/docs` folder:
 
 - **[📘 Main Documentation](./docs/README.md)** - Project overview, architecture, features, setup
 - **[📊 Project Status & Onboarding](./docs/PROJECT_STATUS.md)** - ⭐ **START HERE** - Complete project context, roadmap, and getting started guide
+- **[🔒 Security Incident Resolution](./SECURITY_INCIDENT_RESOLUTION.md)** - Jan 5, 2026 credentials exposure incident and resolution
 - **[🧪 Testing Guide](./docs/TESTING.md)** - Comprehensive testing procedures and checklists
 - **[🚀 Deployment Guide](./docs/DEPLOYMENT.md)** - Google Cloud deployment instructions
 - **[🚀 Google Cloud Guide](./docs/DEPLOYMENT_GOOGLE_CLOUD.md)** - Comprehensive GCP deployment guide
@@ -154,10 +155,23 @@ We welcome contributions! To get started:
 4. Create a feature branch
 5. Submit a pull request
 
+### 🔒 Security Guidelines for Contributors
+
+**NEVER commit sensitive files to git:**
+- `.env`, `.env.local`, `.env.production`, `.env.gcloud`
+- Service account keys (`.json` files)
+- API keys, passwords, or tokens
+
+**These files are already in `.gitignore`**. If you accidentally commit secrets:
+1. Immediately follow the incident response guide in [SECURITY_INCIDENT_RESOLUTION.md](./SECURITY_INCIDENT_RESOLUTION.md)
+2. Use `git-filter-repo` to remove from history
+3. Regenerate all exposed credentials
+4. Force push cleaned history
+
 See [docs/README.md](./docs/README.md) for detailed contribution guidelines.
 
 ---
 
 **Built with ❤️ for Kenyan classrooms**  
-**Repository**: https://github.com/ViggenKorir/SautiDarasa  
-**Last Updated**: December 5, 2025
+**Repository**: https://github.com/Eli-Keli/SautiDarasa  
+**Last Updated**: January 5, 2026

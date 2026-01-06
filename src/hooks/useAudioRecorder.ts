@@ -26,7 +26,7 @@ export const useAudioRecorder = ({
   });
 
   const audioContextRef = useRef<AudioContext | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Float32Array[]>([]);
   const chunkIntervalRef = useRef<number | null>(null);
@@ -113,29 +113,31 @@ export const useAudioRecorder = ({
       });
       audioContextRef.current = audioContext;
 
+      // Load and register the AudioWorklet processor
+      await audioContext.audioWorklet.addModule('/audio-processor.js');
+
       // Create source from microphone stream
       const source = audioContext.createMediaStreamSource(stream);
 
-      // Create ScriptProcessorNode for audio processing
-      // Buffer size: 4096 samples (~85ms at 48kHz)
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
+      // Create AudioWorkletNode
+      const workletNode = new AudioWorkletNode(audioContext, 'audio-recorder-processor');
+      workletNodeRef.current = workletNode;
 
-      // Process audio data
-      processor.onaudioprocess = (e) => {
-        if (!isRecordingRef.current || isPausedRef.current) return;
-
-        const inputData = e.inputBuffer.getChannelData(0);
-        // Clone the data since it will be reused
-        const chunk = new Float32Array(inputData);
-        audioChunksRef.current.push(chunk);
-        
-        console.log(`[AudioRecorder] Audio chunk captured: ${chunk.length} samples`);
+      // Handle messages from the worklet (audio data)
+      workletNode.port.onmessage = (event) => {
+        if (event.data.type === 'audioData') {
+          const chunk = new Float32Array(event.data.data);
+          audioChunksRef.current.push(chunk);
+          console.log(`[AudioRecorder] Audio chunk captured: ${chunk.length} samples`);
+        }
       };
 
       // Connect nodes
-      source.connect(processor);
-      processor.connect(audioContext.destination);
+      source.connect(workletNode);
+      workletNode.connect(audioContext.destination);
+
+      // Send start command to worklet
+      workletNode.port.postMessage({ command: 'start' });
 
       // Set up interval to send chunks periodically
       const intervalId = window.setInterval(processAndSendChunks, chunkDuration);
@@ -164,6 +166,11 @@ export const useAudioRecorder = ({
 
   // Stop recording
   const stopRecording = useCallback(() => {
+    // Send stop command to worklet
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.postMessage({ command: 'stop' });
+    }
+
     // Clear interval
     if (chunkIntervalRef.current) {
       clearInterval(chunkIntervalRef.current);
@@ -176,9 +183,9 @@ export const useAudioRecorder = ({
     }
 
     // Disconnect audio nodes
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
+    if (workletNodeRef.current) {
+      workletNodeRef.current.disconnect();
+      workletNodeRef.current = null;
     }
 
     // Close AudioContext
@@ -202,8 +209,8 @@ export const useAudioRecorder = ({
 
   // Pause recording
   const pauseRecording = useCallback(() => {
-    if (audioContextRef.current && audioContextRef.current.state === 'running') {
-      audioContextRef.current.suspend();
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.postMessage({ command: 'pause' });
       isPausedRef.current = true;
       setState(prev => ({ ...prev, isPaused: true }));
       console.log('[AudioRecorder] Recording paused');
@@ -212,8 +219,8 @@ export const useAudioRecorder = ({
 
   // Resume recording
   const resumeRecording = useCallback(() => {
-    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume();
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.postMessage({ command: 'resume' });
       isPausedRef.current = false;
       setState(prev => ({ ...prev, isPaused: false }));
       console.log('[AudioRecorder] Recording resumed');
@@ -226,8 +233,8 @@ export const useAudioRecorder = ({
       if (chunkIntervalRef.current) {
         clearInterval(chunkIntervalRef.current);
       }
-      if (processorRef.current) {
-        processorRef.current.disconnect();
+      if (workletNodeRef.current) {
+        workletNodeRef.current.disconnect();
       }
       if (audioContextRef.current) {
         audioContextRef.current.close();

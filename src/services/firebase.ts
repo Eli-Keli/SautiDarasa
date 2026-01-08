@@ -1,5 +1,6 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set, onDisconnect, serverTimestamp, type Database } from 'firebase/database';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 
 // Firebase configuration
 const firebaseConfig = {
@@ -25,11 +26,13 @@ const isFirebaseConfigured = () => {
 // Initialize Firebase only if properly configured
 let app: FirebaseApp | null = null;
 let database: Database | null = null;
+let db: Firestore | null = null;
 
 try {
   if (isFirebaseConfigured()) {
     app = initializeApp(firebaseConfig);
     database = getDatabase(app);
+    db = getFirestore(app);
   } else {
     console.warn('[Firebase] Not configured. Using demo/offline mode. Add credentials to .env file.');
   }
@@ -42,7 +45,7 @@ try {
 export const monitorConnection = (callback: (connected: boolean) => void) => {
   if (!database) {
     callback(true); // Assume connected in offline mode
-    return () => {};
+    return () => { };
   }
   const connectedRef = ref(database, '.info/connected');
   return onValue(connectedRef, (snapshot) => {
@@ -57,7 +60,7 @@ export const subscribeToSessionCaptions = (
 ) => {
   if (!database) {
     console.warn('[Firebase] Database not initialized. Captions will not be synced.');
-    return () => {};
+    return () => { };
   }
   const captionRef = ref(database, `captions/${sessionId}/latest`);
   return onValue(captionRef, (snapshot) => {
@@ -89,7 +92,7 @@ export const markTeacherPresence = async (sessionId: string) => {
     connected: true,
     connectedAt: serverTimestamp(),
   });
-  
+
   // Clear on disconnect
   onDisconnect(presenceRef).set({
     connected: false,
@@ -97,4 +100,4 @@ export const markTeacherPresence = async (sessionId: string) => {
   });
 };
 
-export { database };
+export { database, db };

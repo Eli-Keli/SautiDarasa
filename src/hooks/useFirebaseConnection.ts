@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { monitorConnection } from '../services/firebase';
 
 interface ConnectionState {
@@ -16,28 +16,13 @@ export const useFirebaseConnection = (onReconnect?: () => void) => {
     lastDisconnectTime: null,
   });
 
-  const handleReconnect = useCallback(() => {
-    console.log('[Firebase] Attempting to reconnect...');
-    setState((prev) => ({
-      ...prev,
-      isReconnecting: true,
-      reconnectAttempts: prev.reconnectAttempts + 1,
-    }));
+  const onReconnectRef = useRef(onReconnect);
+  const backoffTimerRef = useRef<number | null>(null);
 
-    // Trigger user-provided reconnect callback
-    if (onReconnect) {
-      onReconnect();
-    }
-
-    // Auto-retry with exponential backoff
-    const backoffDelay = Math.min(1000 * Math.pow(2, state.reconnectAttempts), 30000);
-    setTimeout(() => {
-      setState((prev) => ({
-        ...prev,
-        isReconnecting: false,
-      }));
-    }, backoffDelay);
-  }, [state.reconnectAttempts, onReconnect]);
+  // Keep the ref updated
+  useEffect(() => {
+    onReconnectRef.current = onReconnect;
+  }, [onReconnect]);
 
   useEffect(() => {
     let reconnectTimer: number | null = null;
@@ -57,23 +42,48 @@ export const useFirebaseConnection = (onReconnect?: () => void) => {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
+        if (backoffTimerRef.current) {
+          clearTimeout(backoffTimerRef.current);
+          backoffTimerRef.current = null;
+        }
 
         console.log('[Firebase] Connected');
       } else {
         // Disconnected
         const now = Date.now();
-        setState((prev) => ({
-          ...prev,
-          isConnected: false,
-          lastDisconnectTime: now,
-        }));
+        
+        setState((prev) => {
+          console.warn('[Firebase] Disconnected. Will attempt to reconnect...');
+          
+          // Trigger reconnect callback if provided
+          if (onReconnectRef.current) {
+            onReconnectRef.current();
+          }
 
-        console.warn('[Firebase] Disconnected. Will attempt to reconnect...');
+          // Calculate exponential backoff
+          const backoffDelay = Math.min(1000 * Math.pow(2, prev.reconnectAttempts), 30000);
+          
+          // Clear any existing reconnection timer
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+          }
+          
+          // Schedule reconnection attempt
+          reconnectTimer = window.setTimeout(() => {
+            setState((current) => ({
+              ...current,
+              isReconnecting: false,
+            }));
+          }, backoffDelay);
 
-        // Start reconnection attempts after 2 seconds
-        reconnectTimer = setTimeout(() => {
-          handleReconnect();
-        }, 2000);
+          return {
+            ...prev,
+            isConnected: false,
+            isReconnecting: true,
+            reconnectAttempts: prev.reconnectAttempts + 1,
+            lastDisconnectTime: now,
+          };
+        });
       }
     });
 
@@ -82,12 +92,24 @@ export const useFirebaseConnection = (onReconnect?: () => void) => {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }
+      if (backoffTimerRef.current) {
+        clearTimeout(backoffTimerRef.current);
+      }
     };
-  }, [handleReconnect]);
+  }, []); // Empty dependency array - no circular dependencies
 
   const manualReconnect = useCallback(() => {
-    handleReconnect();
-  }, [handleReconnect]);
+    console.log('[Firebase] Manual reconnect triggered');
+    setState((prev) => ({
+      ...prev,
+      isReconnecting: true,
+      reconnectAttempts: 0,
+    }));
+    
+    if (onReconnectRef.current) {
+      onReconnectRef.current();
+    }
+  }, []);
 
   return {
     ...state,

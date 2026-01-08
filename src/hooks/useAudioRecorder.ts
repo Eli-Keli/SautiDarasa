@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface UseAudioRecorderOptions {
-  onDataAvailable: (audioBlob: Blob) => void;
+  onDataAvailable?: (audioBlob: Blob) => void; // Optional for backward compatibility
+  onAudioData?: (audioBuffer: ArrayBuffer) => void; // For WebSocket streaming
   chunkDuration?: number; // in milliseconds
   sampleRate?: number; // Sample rate for PCM audio
 }
@@ -15,7 +16,8 @@ interface AudioRecorderState {
 
 export const useAudioRecorder = ({
   onDataAvailable,
-  chunkDuration = 1500, // 1.5 seconds default
+  onAudioData,
+  chunkDuration = 100, // 100ms for near-real-time streaming
   sampleRate = 48000, // Default to 48kHz for optimal quality
 }: UseAudioRecorderOptions) => {
   const [state, setState] = useState<AudioRecorderState>({
@@ -36,21 +38,21 @@ export const useAudioRecorder = ({
   // Request microphone permission
   const requestPermission = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-        } 
+        }
       });
       streamRef.current = stream;
-      
+
       // Log audio track settings
       const audioTrack = stream.getAudioTracks()[0];
       const settings = audioTrack.getSettings();
       console.log('[AudioRecorder] Audio track settings:', settings);
-      
+
       setState(prev => ({ ...prev, permissionGranted: true, error: null }));
       return stream;
     } catch (err) {
@@ -70,7 +72,7 @@ export const useAudioRecorder = ({
     return int16Array.buffer;
   };
 
-  // Process accumulated audio chunks and send as blob
+  // Process accumulated audio chunks and send as blob or buffer
   const processAndSendChunks = useCallback(() => {
     if (audioChunksRef.current.length === 0) return;
 
@@ -85,30 +87,34 @@ export const useAudioRecorder = ({
 
     // Convert to 16-bit PCM
     const pcm16Buffer = floatTo16BitPCM(combinedFloat32);
-    
-    // Create blob from raw PCM data (no WAV header - backend expects raw LINEAR16)
-    const blob = new Blob([pcm16Buffer], { type: 'audio/l16' });
-    
-    console.log(`[AudioRecorder] Sending PCM chunk: ${blob.size} bytes, ${combinedFloat32.length} samples, ${(combinedFloat32.length / sampleRate).toFixed(2)}s duration`);
-    
+
+    console.log(`[AudioRecorder] Sending PCM chunk: ${pcm16Buffer.byteLength} bytes, ${combinedFloat32.length} samples, ${(combinedFloat32.length / sampleRate).toFixed(2)}s duration`);
+
     // Clear chunks
     audioChunksRef.current = [];
-    
-    // Send to callback
-    onDataAvailable(blob);
-  }, [onDataAvailable, sampleRate]);
+
+    // Send via WebSocket (preferred) or HTTP callback (legacy)
+    if (onAudioData) {
+      onAudioData(pcm16Buffer);
+    } else if (onDataAvailable) {
+      // Create blob from raw PCM data (no WAV header - backend expects raw LINEAR16)
+      const blob = new Blob([pcm16Buffer], { type: 'audio/l16' });
+      onDataAvailable(blob);
+    }
+  }, [onDataAvailable, onAudioData, sampleRate]);
 
   // Start recording
   const startRecording = useCallback(async () => {
     try {
       let stream = streamRef.current;
-      
+
       if (!stream) {
         stream = await requestPermission();
       }
 
-      // Create AudioContext
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+      // Create AudioContext (support both standard and webkit prefixed)
+      const AudioContextClass = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+      const audioContext = new AudioContextClass({
         sampleRate,
       });
       audioContextRef.current = audioContext;
@@ -148,11 +154,11 @@ export const useAudioRecorder = ({
       isRecordingRef.current = true;
       isPausedRef.current = false;
 
-      setState(prev => ({ 
-        ...prev, 
-        isRecording: true, 
+      setState(prev => ({
+        ...prev,
+        isRecording: true,
         isPaused: false,
-        error: null 
+        error: null
       }));
 
     } catch (err) {

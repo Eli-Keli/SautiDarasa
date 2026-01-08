@@ -1,18 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { generateSessionId, createStudentLink, isDemoMode } from '../utils/session';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import { useTranscriptionWebSocket } from '../hooks/useTranscriptionWebSocket';
 import { useFirebaseConnection } from '../hooks/useFirebaseConnection';
 import { useWakeLock } from '../hooks/useWakeLock';
-import { uploadAudioChunkWithRetry } from '../utils/audio';
-import { markTeacherPresence } from '../services/firebase';
+import { markTeacherPresence, db } from '../services/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import WaveformVisualizer from '../components/WaveformVisualizer';
 
 export default function TeacherView() {
   const [sessionId] = useState(() => generateSessionId());
   const [shareLink] = useState(() => createStudentLink(sessionId));
   const [copied, setCopied] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [chunksUploaded, setChunksUploaded] = useState(0);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isStartingRecording, setIsStartingRecording] = useState(false);
   const demoMode = isDemoMode();
@@ -26,25 +25,40 @@ export default function TeacherView() {
     }
   );
 
-  // Audio recording hook
-  const handleAudioChunk = useCallback(async (blob: Blob) => {
-    if (demoMode) {
-      // In demo mode, just log
-      console.log('[Demo] Audio chunk received:', blob.size, 'bytes');
-      setChunksUploaded(prev => prev + 1);
-      return;
-    }
+  // WebSocket transcription
+  const {
+    interimTranscript,
+    finalTranscript,
+    isConnected: wsConnected,
+    error: wsError,
+    connect: wsConnect,
+    disconnect: wsDisconnect,
+    sendAudio,
+    clearTranscripts,
+  } = useTranscriptionWebSocket(sessionId);
 
-    // Upload to backend
-    const result = await uploadAudioChunkWithRetry(sessionId, blob);
-    if (result.success) {
-      setUploadError(null);
-      setChunksUploaded(prev => prev + 1);
-    } else {
-      setUploadError(result.error || 'Upload failed');
+  // Save final transcripts to Firestore
+  useEffect(() => {
+    if (finalTranscript && !demoMode && db) {
+      const saveTranscript = async () => {
+        try {
+          // Firestore is guaranteed to be non-null here
+          await addDoc(collection(db!, 'sessions', sessionId, 'transcripts'), {
+            text: finalTranscript.trim(),
+            timestamp: serverTimestamp(),
+            isFinal: true,
+          });
+          console.log('✅ Saved final transcript to Firestore');
+          clearTranscripts();
+        } catch (error) {
+          console.error('❌ Failed to save transcript:', error);
+        }
+      };
+      saveTranscript();
     }
-  }, [sessionId, demoMode]);
+  }, [finalTranscript, sessionId, demoMode, clearTranscripts]);
 
+  // Audio recording hook with WebSocket streaming
   const {
     isRecording,
     error: recorderError,
@@ -52,8 +66,8 @@ export default function TeacherView() {
     startRecording,
     stopRecording,
   } = useAudioRecorder({
-    onDataAvailable: handleAudioChunk,
-    chunkDuration: 5000, // 5 seconds - ensures complete WebM chunks
+    onAudioData: sendAudio, // Stream audio via WebSocket
+    chunkDuration: 100, // 100ms for near-real-time
   });
 
   // Keep screen awake while recording
@@ -68,7 +82,7 @@ export default function TeacherView() {
 
     // Mark teacher presence
     markTeacherPresence(sessionId);
-    
+
     // Simulate initialization delay
     const timer = setTimeout(() => setIsInitializing(false), 500);
 
@@ -94,10 +108,13 @@ export default function TeacherView() {
   const handleStartStop = async () => {
     if (isRecording) {
       stopRecording();
-      setChunksUploaded(0);
+      wsDisconnect();
     } else {
       setIsStartingRecording(true);
       try {
+        // Connect WebSocket first
+        wsConnect();
+        // Then start recording
         await startRecording();
       } finally {
         setIsStartingRecording(false);
@@ -145,17 +162,17 @@ export default function TeacherView() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-sm">
             <div
-              className={`w-3 h-3 rounded-full ${
-                isConnected ? 'bg-green-500' : isReconnecting ? 'bg-yellow-500' : 'bg-red-500'
-              } animate-pulse`}
+              className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : isReconnecting ? 'bg-yellow-500' : 'bg-red-500'
+                } animate-pulse`}
             ></div>
-            <span>
-              {isConnected
-                ? 'Connected'
-                : isReconnecting
-                ? `Reconnecting... (${reconnectAttempts})`
-                : 'Disconnected'}
-            </span>
+            <span>Firebase: {isConnected ? 'Connected' : isReconnecting ? `Reconnecting... (${reconnectAttempts})` : 'Disconnected'}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <div
+              className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'
+                } animate-pulse`}
+            ></div>
+            <span>WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}</span>
           </div>
           {!isConnected && !isReconnecting && (
             <button
@@ -181,15 +198,29 @@ export default function TeacherView() {
           )}
         </div>
 
+        {/* Transcription Display */}
+        {(interimTranscript || finalTranscript) && (
+          <div className="w-full max-w-2xl bg-gray-900 rounded-lg p-6 border border-gray-800">
+            <h3 className="text-sm font-semibold text-gray-400 mb-3">Live Transcription</h3>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {finalTranscript && (
+                <p className="text-white">{finalTranscript}</p>
+              )}
+              {interimTranscript && (
+                <p className="text-gray-400 italic">{interimTranscript}</p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Recording Button */}
         <button
           onClick={handleStartStop}
           disabled={isStartingRecording}
-          className={`px-8 py-4 rounded-lg text-xl font-semibold transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 ${
-            isRecording
+          className={`px-8 py-4 rounded-lg text-xl font-semibold transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 ${isRecording
               ? 'bg-red-600 hover:bg-red-700'
               : 'bg-[#3B82F6] hover:bg-blue-600'
-          }`}
+            }`}
         >
           {isStartingRecording ? (
             <>
@@ -285,10 +316,10 @@ export default function TeacherView() {
 
         {/* Status Messages */}
         <div className="w-full max-w-md space-y-2">
-          {isRecording && (
+          {isRecording && wsConnected && (
             <div className="text-sm text-green-400 flex items-center gap-2">
               <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-              Recording and sending audio chunks... ({chunksUploaded} sent)
+              Streaming audio and receiving real-time transcriptions...
               {wakeLockActive && (
                 <span className="text-xs text-gray-500" title="Screen will stay awake">
                   🔆
@@ -296,21 +327,21 @@ export default function TeacherView() {
               )}
             </div>
           )}
-          
-          {uploadError && (
+
+          {wsError && (
             <div className="text-sm text-red-400 flex items-center gap-2">
               <span>⚠️</span>
-              {uploadError}
+              {wsError}
             </div>
           )}
-          
+
           {recorderError && (
             <div className="text-sm text-red-400 flex items-center gap-2">
               <span>⚠️</span>
               {recorderError}
             </div>
           )}
-          
+
           {permissionGranted === false && (
             <div className="text-sm text-yellow-400 flex items-center gap-2">
               <span>🎤</span>
